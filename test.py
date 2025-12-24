@@ -1,236 +1,254 @@
-from typing import Self, Optional, TypeVar, Generic, Sequence
-from dataclasses import dataclass, asdict
 from abc import ABC, abstractmethod
+from typing import Any, Callable
 import json
-from pathlib import Path
+from dataclasses import asdict, dataclass, field
+
+
+class Command(ABC):
+    @abstractmethod
+    def execute(self) -> None:
+        ...
+
+    @abstractmethod
+    def cancel(self) -> None:
+        ...
+
+    def is_printed(self) -> bool:
+        return False
+
+
+class Keyboard:
+    def __init__(self, file_to_safe: str) -> None:
+        self.state_server = KeybordStateSaver(self, file_to_safe, KeyboardSerializer())
+        self.undo_stack = []
+        self.redo_stack = []
+        self.printed_sq = ""
+        self.commands = {}
+
+    def init_commands(self, commands: dict[str, Command]) -> None:
+        self.commands = commands
+
+    def do(self, command_key: str) -> None:
+        if command_key not in self.commands:
+            print(f"Command '{command_key}' not found")
+            return
+        cmd = self.commands[command_key]
+        if cmd.is_printed():
+            self.printed_sq += cmd.my_key()
+            cmd.execute(self.printed_sq)
+        else:
+            cmd.execute()
+        self.undo_stack.append(command_key)
+        self.redo_stack.clear()
+
+    def undo(self) -> None:
+        if not self.undo_stack:
+            print("Nothing to undo")
+            return
+        command_key = self.undo_stack.pop()
+        cmd = self.commands[command_key]
+        if cmd.is_printed():
+            self.printed_sq = self.printed_sq[:-1]
+            cmd.cancel(self.printed_sq)
+        else:
+            cmd.cancel()
+        self.redo_stack.append(command_key)
+
+    def redo(self) -> None:
+        if not self.redo_stack:
+            print("Nothing to redo")
+            return
+        command_key = self.redo_stack.pop()
+        cmd = self.commands[command_key]
+        if cmd.is_printed():
+            self.printed_sq += cmd.my_key()
+            cmd.execute(self.printed_sq)
+        else:
+            cmd.execute()
+        self.undo_stack.append(command_key)
+
+    def serialize(self) -> None:
+        self.state_server.save()
+
+    def deserialize(self) -> None:
+        self.state_server.load()
+
+
+class KeyCommand(Command):
+    def __init__(self, key: str) -> None:
+        self.key = key
+
+    def my_key(self):
+        return self.key
+
+    def execute(self, sq: str) -> None:
+        print(sq)
+
+    def cancel(self, sq: str) -> None:
+        print(sq)
+
+    def is_printed(self) -> bool:
+        return True
+
+
+class VolumeUpCommand(Command):
+    def execute(self) -> None:
+        print("volume increased +20%")
+
+    def cancel(self) -> None:
+        print("volume decreased -20%")
+
+
+class VolumeDownCommand(Command):
+    def execute(self) -> None:
+        print("volume decreased -20%")
+
+    def cancel(self) -> None:
+        print("volume increased +20%")
+
+
+class MediaPlayerCommand(Command):
+    def execute(self) -> None:
+        print("media player launched")
+
+    def cancel(self) -> None:
+        print("media player closed")
 
 
 @dataclass
-class User:
-    id: int
-    name: str
-    login: str
-    password: str
-    email: Optional[str] = None
-    address: Optional[str] = None
-
-    def __repr__(self) -> str:
-        parts = [
-            f"id: {self.id}",
-            f"name: {self.name}",
-            f"login: {self.login}",
-        ]
-        if self.email is not None:
-            parts.append(f"email: {self.email}")
-        if self.address is not None:
-            parts.append(f"address: {self.address}")
-        return "\n".join(parts)
-
-    def __lt__(self, other: Self) -> bool:
-        return self.name < other.name
+class CommandData:
+    type: str
+    args: dict[str, Any]
 
 
-T = TypeVar("T")
+@dataclass
+class KeyboardData:
+    printed_sq: Any
+    undo_stack: list
+    redo_stack: list
+    commands: dict[str, CommandData] = field(default_factory=dict)
 
 
-class IDataRepository(ABC, Generic[T]):
+class Serializer(ABC):
     @abstractmethod
-    def get_all(self) -> Sequence[T]:
-        ...
-
-    @abstractmethod
-    def get_by_id(self, id: int) -> Optional[T]:
-        ...
-
-    @abstractmethod
-    def add(self, item: T) -> None:
-        ...
-
-    @abstractmethod
-    def update(self, item: T) -> None:
-        ...
-
-    @abstractmethod
-    def delete(self, item: T) -> None:
+    def serialize(self, obj: object) -> dict:
         ...
 
 
-class IUserRepository(IDataRepository[User]):
-    @abstractmethod
-    def get_by_login(self, login: str) -> Optional[User]:
-        ...
+class KeyboardSerializer(Serializer):
+    def serialize(self, obj: object) -> dict:
+        return {k: v for k, v in obj.__dict__.items() if k not in ("keyboard", "action", "undo_action")}
 
 
-class IAuthService(ABC):
-    @abstractmethod
-    def sign_in(self, user: User) -> None:
-        ...
-
-    @abstractmethod
-    def sign_out(self, user: User) -> None:
-        ...
-
-    @property
-    @abstractmethod
-    def is_authorized(self) -> bool:
-        ...
-
-    @property
-    @abstractmethod
-    def current_user(self) -> Optional[User]:
-        ...
-
-
-class FileDataRepository(Generic[T]):
-    def __init__(self, file_path: str, cls_type: T) -> None:
+class KeybordStateSaver:
+    def __init__(self, keyboard: 'Keyboard', file_path: str,
+                 serializer: Serializer) -> None:
+        self.keyboard = keyboard
         self.file_path = Path(file_path)
-        self.cls_type = cls_type
+        self.serializer = serializer
 
+    def save(self) -> None:
+        commands_data = {
+            key: CommandData(
+                type=cmd.__class__.__name__,
+                args=self.serializer.serialize(cmd)
+            )
+            for key, cmd in self.keyboard.commands.items()
+        }
+
+        full_data = KeyboardData(
+            printed_sq=self.keyboard.printed_sq,
+            undo_stack=self.keyboard.undo_stack,
+            redo_stack=self.keyboard.redo_stack,
+            commands=commands_data
+        )
+
+        with open(self.file_path, "w", encoding="utf-8") as f:
+            json.dump(asdict(full_data), f, indent=4, ensure_ascii=False)
+
+    def load(self) -> None:
         if not self.file_path.exists():
-            with open(self.file_path, "w", encoding="utf-8") as f:
-                json.dump([], f, indent=4, ensure_ascii=False)
+            return
 
-    def get_all(self) -> Sequence[User]:
         with open(self.file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        return [self.cls_type(**item) for item in data]
+        self.keyboard.printed_sq = data.get("printed_sq", "")
+        self.keyboard.undo_stack = data.get("undo_stack", [])
+        self.keyboard.redo_stack = data.get("redo_stack", [])
 
-    def get_by_id(self, id: int) -> Optional[User]:
-        users = self.get_all()
+        commands_data = data.get("commands", {})
+        restored = {}
 
-        for user in users:
-            if user.id == id: return user
+        for key, info in commands_data.items():
+            cmd_type = info["type"]
+            args = info["args"]
 
-        return None
+            if cmd_type == "KeyCommand":
+                restored[key] = KeyCommand(args["key"], )
+            elif cmd_type == "VolumeUpCommand":
+                restored[key] = VolumeUpCommand()
+            elif cmd_type == "VolumeDownCommand":
+                restored[key] = VolumeDownCommand()
+            elif cmd_type == "MediaPlayerCommand":
+                restored[key] = MediaPlayerCommand()
 
-    def add(self, item: User) -> None:
-        users = self.get_all()
-        if self.get_by_id(item.id) is not None:
-            return
-        users.append(item)
-        self._save_all(users)
-
-    def update(self, item: User) -> None:
-        users = self.get_all()
-        user = self.get_by_id(item.id)
-
-        user_id = users.index(user)
-        users[user_id] = item
-        self._save_all(users)
-
-    def delete(self, item: User) -> None:
-        users = self.get_all()
-        users.remove(item)
-        self._save_all(users)
-
-    def _save_all(self, items: Sequence[T]) -> None:
-        with open(self.file_path, "w", encoding="utf-8") as f:
-            json.dump([asdict(i) for i in items], f, indent=4, ensure_ascii=False)
+        self.keyboard.init_commands(restored)
 
 
-class FileUserRepository(FileDataRepository[User]):
-    def __init__(self, file_path: str) -> None:
-        super().__init__(file_path, User)
+from pathlib import Path
 
-    def get_by_login(self, login: str) -> Optional[User]:
-        users = self.get_all()
+TEST_FILE = "test_state.json"
 
-        for user in users:
-            if user.login == login: return user
+k = Keyboard(TEST_FILE)
 
-        return None
+commands = {
+    letter: KeyCommand(
+        letter)
+    for letter in "abcd"
+}
 
+commands["ctrl++"] = VolumeUpCommand()
 
-@dataclass
-class CurrentUser:
-    id: int
+commands["ctrl+-"] = VolumeDownCommand()
 
+commands["ctrl+p"] = MediaPlayerCommand()
 
-class FileSaveCurrentUser(FileDataRepository[CurrentUser]):
-    def __init__(self, file_path: str) -> None:
-        super().__init__(file_path, CurrentUser)
+k.init_commands(commands)
 
+# --- Тест 1: Печать символов и undo/redo ---
+print("== Test 1: Print and Undo/Redo ==")
+k.do('a')  # a
+k.do('b')  # ab
+k.do('c')  # abc
+k.undo()  # ab
+k.undo()  # a
+k.redo()  # ab
 
-class FileAuthService(IAuthService):
-    def __init__(self, auth_path: str, repo_path: str) -> None:
-        self.sgn = FileSaveCurrentUser(auth_path)
-        self.repo = FileUserRepository(repo_path)
+# --- Тест 2: Команды громкости ---
+print("== Test 2: Volume Commands ==")
+k.do('ctrl++')  # volume increased +20%
+k.undo()  # volume decreased -20%
+k.do('ctrl+-')  # volume decreased +20%
+k.undo()  # volume increased -20%
 
-    def sign_in(self, user: User) -> None:
-        if self.is_authorized():
-            print("Sign out before sign in")
-            return
-        if self.repo.get_by_id(user.id) is None:
-            print("No such user")
-            return
+# --- Тест 3: Команда медиаплеера ---
+print("== Test 3: Media Player Command ==")
+k.do('ctrl+p')  # media player launched
+k.undo()  # media player closed
 
-        self.sgn.add(CurrentUser(user.id))
+# --- Тест 4: Сохранение состояния ---
+print("== Test 4: Save State ==")
+k.serialize()  # сохраняем состояние
 
-    def sign_out(self, user: User) -> None:
-        if CurrentUser(user.id) not in self.sgn.get_all():
-            print("Sign in before sign out")
-            return
-        self.sgn.delete(CurrentUser(user.id))
+# --- Тест 5: Восстановление состояния ---
+print("== Test 5: Load State ==")
+new_k = Keyboard(TEST_FILE)
+new_k.deserialize()
 
-    def is_authorized(self) -> bool:
-        sgn_users = self.sgn.get_all()
+# Проверка восстановления строки
+print(f"Restored printed_sq: {new_k.printed_sq}")  # должно быть 'ab'
+print(f"Restored undo_stack: {new_k.undo_stack}")  # должно содержать историю команд
 
-        return len(sgn_users) > 0
-
-    def current_user(self) -> Optional[User]:
-        if not self.is_authorized():
-            return None
-
-        return self.repo.get_by_id(self.sgn.get_all()[-1].id)
-
-
-def run_tests():
-    repo_path = "users.json"
-    auth_path = "user.json"
-
-    # создаем репозиторий и сервис авторизации
-    auth_service = FileAuthService(auth_path, repo_path)
-    repo = FileUserRepository(repo_path)
-
-    # # очистим файл для тестов
-    # repo._save_all([])
-
-    # 1. Добавление пользователей
-    user1 = User(id=1, name="Alice", login="alice123", password="pass1", email="alice@mail.com")
-    user2 = User(id=2, name="Bob", login="bob321", password="pass2")
-    repo.add(user1)
-    repo.add(user2)
-    print("Все пользователи после добавления:")
-    print(repo.get_all())
-
-    # 2. Редактирование пользователя
-    user1.email = "alice_new@mail.com"
-    repo.update(user1)
-    print("\nПосле редактирования Alice:")
-    print(repo.get_by_id(1))
-
-    # 3. Авторизация пользователя
-    auth_service.sign_in(user1)
-    print("\nАвторизован ли кто-то?", auth_service.is_authorized())
-    print("Текущий пользователь:")
-    print(auth_service.current_user())
-
-    auth_service.sign_out(user1)
-    # 4. Смена пользователя
-    auth_service.sign_in(user2)
-    print("\nПосле авторизации Bob:")
-    print(auth_service.current_user())
-
-    # 5. Автоавторизация (имитация перезапуска)
-    auth_service2 = FileAuthService(auth_path=auth_path, repo_path=repo_path)
-    print("\nПосле перезапуска программы (автоавторизация):")
-    print(auth_service2.current_user())
-
-    # 6. Удаление пользователя
-    auth_service.sign_out(user2)
-    print("\nПосле выхода Bob:")
-    print(auth_service.current_user())
-
-
-run_tests()
+# action=lambda k=args["key"], kb=self.keyboard: setattr(kb, "printed_sq", kb.printed_sq + k) or print(kb.printed_sq),
+# undo_action=lambda kb=self.keyboard: setattr(kb, "printed_sq", kb.printed_sq[:-1]) or print(kb.printed_sq)

@@ -1,0 +1,18 @@
+[
+    {
+        "id": 1,
+        "name": "Василий Пупкин",
+        "login": "vasyanpu",
+        "password": "fizmat123",
+        "email": "lenin@sssr.com",
+        "address": "Москва, ул. пушкина, колотушкина"
+    },
+    {
+        "id": 2,
+        "name": "Владимир Ленин",
+        "login": "vilenin",
+        "password": "revolution17",
+        "email": "lenin@sssr.com",
+        "address": null
+    }
+]

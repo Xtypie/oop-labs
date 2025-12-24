@@ -231,9 +231,25 @@ class SessionData:
     """Класс для хранения данных сессии"""
     user_id: int
 
+    @property
+    def id(self) -> int:
+        """Свойство для совместимости с репозиторием"""
+        return self.user_id
+
+    def __post_init__(self):
+        """Для сериализации в JSON"""
+        self._id = self.user_id
+
+    def __hash__(self):
+        return hash(self.user_id)
+
+    def __eq__(self, other):
+        if isinstance(other, SessionData):
+            return self.user_id == other.user_id
+        return False
+
 
 def demonstrate_system():
-    """Демонстрация работы системы авторизации"""
     print("=" * 50)
     print("ДЕМОНСТРАЦИЯ СИСТЕМЫ АВТОРИЗАЦИИ")
     print("=" * 50)
@@ -248,29 +264,28 @@ def demonstrate_system():
     # Создание пользователей
     user1 = User(
         id=1,
-        name="Иван Петров",
-        login="ivan_p",
-        password="qwerty123",
-        email="ivan@example.com",
-        address="Москва, ул. Ленина, 10"
+        name="Василий Пупкин",
+        login="vasyanpu",
+        password="fizmat123",
+        email="vasyan1337@kasha.com",
+        address="Москва, ул. пушкина, колотушкина"
     )
 
     user2 = User(
         id=2,
-        name="Анна Сидорова",
-        login="anna_s",
-        password="password456",
-        email="anna@example.com"
+        name="Владимир Ленин",
+        login="vilenin",
+        password="revolution17",
+        email="lenin@sssr.com"
     )
 
     user3 = User(
         id=3,
-        name="Петр Иванов",
-        login="petr_i",
-        password="secret789"
+        name="Андрей Бебуришвилкин",
+        login="andryuxaxd",
+        password="salewa12345"
     )
 
-    # Добавление пользователей в репозиторий
     user_repo.add(user1)
     user_repo.add(user2)
     user_repo.add(user3)
@@ -289,7 +304,7 @@ def demonstrate_system():
     print("\n3. РЕДАКТИРОВАНИЕ СВОЙСТВ ПОЛЬЗОВАТЕЛЯ")
     print("-" * 30)
     print(f"До редактирования: {user_repo.get_by_id(1)}")
-    user1.email = "ivan.new@example.com"
+    user1.email = "lenin@sssr.com"
     user_repo.update(user1)
     print(f"После редактирования: {user_repo.get_by_id(1)}")
 
@@ -316,8 +331,8 @@ def demonstrate_system():
 
     print("\n7. ПОИСК ПОЛЬЗОВАТЕЛЕЙ")
     print("-" * 30)
-    found_user = user_repo.get_by_login("ivan_p")
-    print(f"Найден пользователь по логину 'ivan_p': {found_user.name if found_user else 'не найден'}")
+    found_user = user_repo.get_by_login("vasyanpu")
+    print(f"Найден пользователь по логину 'vasyanpu': {found_user.name if found_user else 'не найден'}")
 
     print("\n8. УДАЛЕНИЕ ПОЛЬЗОВАТЕЛЯ")
     print("-" * 30)

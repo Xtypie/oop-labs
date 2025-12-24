@@ -1,0 +1,4 @@
+[LogLevel.WARN] [data:2025.12.24 16:27:13] disk almost full
+[LogLevel.WARN] [data:2025.12.24 16:27:13] disk full backup
+[LogLevel.WARN] [data:2025.12.24 16:38:29] disk almost full
+[LogLevel.WARN] [data:2025.12.24 16:38:29] disk full backup

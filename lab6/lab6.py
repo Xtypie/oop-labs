@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
-import string
 from typing import Any, Callable
-from pathlib import Path
 import json
 from dataclasses import asdict, dataclass, field
 
@@ -95,26 +93,26 @@ class KeyCommand(Command):
 
 class VolumeUpCommand(Command):
     def execute(self) -> None:
-        print("volume increased +20%")
+        print("Звук увеличен на +20%")
 
     def cancel(self) -> None:
-        print("volume decreased -20%")
+        print("Звук уменьшен на -20%")
 
 
 class VolumeDownCommand(Command):
     def execute(self) -> None:
-        print("volume decreased -20%")
+        print("Звук уменьшен на -20%")
 
     def cancel(self) -> None:
-        print("volume increased +20%")
+        print("Звук увеличен на +20%")
 
 
 class MediaPlayerCommand(Command):
     def execute(self) -> None:
-        print("media player launched")
+        print("Плейер запущен")
 
     def cancel(self) -> None:
-        print("media player closed")
+        print("Плейер закрыт")
 
 
 @dataclass
@@ -218,8 +216,7 @@ commands["ctrl+p"] = MediaPlayerCommand()
 
 k.init_commands(commands)
 
-# --- Тест 1: Печать символов и undo/redo ---
-print("== Test 1: Print and Undo/Redo ==")
+print("1) Печать символов и Undo/Redo")
 k.do('a')  # a
 k.do('b')  # ab
 k.do('c')  # abc
@@ -227,30 +224,22 @@ k.undo()  # ab
 k.undo()  # a
 k.redo()  # ab
 
-# --- Тест 2: Команды громкости ---
-print("== Test 2: Volume Commands ==")
-k.do('ctrl++')  # volume increased +20%
-k.undo()  # volume decreased -20%
-k.do('ctrl+-')  # volume decreased +20%
-k.undo()  # volume increased -20%
+print("2) Команды громкости")
+k.do('ctrl++')
+k.undo()
+k.do('ctrl+-')
+k.undo()
 
-# --- Тест 3: Команда медиаплеера ---
-print("== Test 3: Media Player Command ==")
-k.do('ctrl+p')  # media player launched
-k.undo()  # media player closed
+print("3) Команды для плейера")
+k.do('ctrl+p')
+k.undo()
 
-# --- Тест 4: Сохранение состояния ---
-print("== Test 4: Save State ==")
+print("4) Сохранение состояния")
 k.serialize()  # сохраняем состояние
 
-# --- Тест 5: Восстановление состояния ---
-print("== Test 5: Load State ==")
+print("5) восстановление состояния")
 new_k = Keyboard(TEST_FILE)
 new_k.deserialize()
 
-# Проверка восстановления строки
-print(f"Restored printed_sq: {new_k.printed_sq}")  # должно быть 'ab'
-print(f"Restored undo_stack: {new_k.undo_stack}")  # должно содержать историю команд
-
-# action=lambda k=args["key"], kb=self.keyboard: setattr(kb, "printed_sq", kb.printed_sq + k) or print(kb.printed_sq),
-# undo_action=lambda kb=self.keyboard: setattr(kb, "printed_sq", kb.printed_sq[:-1]) or print(kb.printed_sq)
+print(f"Restored printed_sq: {new_k.printed_sq}")
+print(f"Restored undo_stack: {new_k.undo_stack}")
