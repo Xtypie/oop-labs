@@ -32,11 +32,11 @@ class Event(Generic[TEventArgs]):
     def __init__(self) -> None:
         self.handlers: list[EventHandler[TEventArgs]] = []
 
-    def __iadd__(self, handler: EventHandler) -> None:
+    def __iadd__(self, handler: EventHandler) -> "Event[TEventArgs]":
         self.handlers.append(handler)
         return self
 
-    def __isub__(self, handler: EventHandler) -> None:
+    def __isub__(self, handler: EventHandler) -> "Event[TEventArgs]":
         self.handlers.remove(handler)
         return self
 
@@ -99,10 +99,22 @@ class Auto(PropertyNotifierMixin):
         self.weight = weight
 
 
-p = Person("Misha", "Nevskogo 14 street", 25)
+class ValidationAdress(EventHandler[PropertyChangingEventArgs]):
+
+    def handle(self, sender: object, args: PropertyChangingEventArgs) -> None:
+        if args.property_name == "address":
+            adress_check = str(args.new_value).lower()
+            if "kaliningrad" not in adress_check:
+                args.can_change = False
+            else:
+                args.can_change = True
+
+
+p = Person("Misha", "Kaliningrad, Nevskogo 14 street", 25)
 
 p.property_changed += PrintHandler()
 p.property_changing += ValidationHandler()
+p.property_changing += ValidationAdress()
 
 p.address = "Ozerova 33 street"
 p.name = "Pasha"

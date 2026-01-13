@@ -43,6 +43,10 @@
         "ctrl+p": {
             "type": "MediaPlayerCommand",
             "args": {}
+        },
+        "ctrl+m": {
+            "type": "Beep",
+            "args": {}
         }
     }
 }

@@ -1,9 +1,17 @@
 from enum import Enum
-from typing import Self
+from abc import ABCMeta, abstractmethod
+from typing import Self, Type
 import types
+import json
 
-from lab2_font7 import font7
-from lab2_font5 import font5
+
+def fontloader(file):
+    with open(file, 'r', encoding="utf-8") as f:
+        return json.load(f)
+
+
+font5 = fontloader('lab2_font5.json')
+font7 = fontloader('lab2_font7.json')
 
 
 class Color(Enum):
@@ -16,6 +24,7 @@ class Color(Enum):
 
 
 class Printer:
+
     def __init__(self, color: Color, position: tuple[int, int], symbol: str, font: dict[str, list]) -> None:
         self.color = color
         self.position = position
@@ -36,6 +45,7 @@ class Printer:
 
         if not rows:
             return []
+        # abc, static, instance, и т д
 
         height = len(rows[0])
         output = [""] * height
@@ -71,7 +81,8 @@ class Printer:
         print(Color.RESET.value, end="")
 
 
-Printer.print_text("Hello", Color.BLUE, (2, 5), "9", font5)
+s = Printer(Color.RED, (5, 5), "#", font5)
+s.print("IKBFU")
 
-with Printer(Color.GREEN, (1, 1), "#", font7) as p:
-    p.print("Hello, \n World")
+with Printer(Color.GREEN, (1, 0), "#", font7) as p:
+    p.print("Hello, World")

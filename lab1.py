@@ -90,7 +90,6 @@ class Angle:
         return Angle(self._value / denominator)
 
 
-
 class AngleRange:
     def __init__(self, first: float | int, second: float | int,
                  first_incl: bool = True, second_incl: bool = True) -> None:
@@ -164,7 +163,12 @@ class AngleRange:
             def greater_eq(x: float | int, y: float | int, inc: bool) -> bool:
                 return x > y or (inc and x == y)
 
+            # less_eq = lambda x,y, inc: x < y or (inc and x == y)
+            # greater_eq = lambda x, y, inc: x > y or(inc and x == y)
+
+
             if f1 <= s1:
+
                 if f2 <= s2:
                     ok_start = greater_eq(f2, f1, self._first_incl and elem._first_incl)
                     ok_end = less_eq(s2, s1, self._second_incl and elem._second_incl)
@@ -341,12 +345,14 @@ print(r8 < r9)
 print(r8 == r9)
 print(r10 > r8)
 
+
 def fmt_range(rg):
+
     a = rg.start
     b = rg.end
     left = "[" if rg.include_start else "("
     right = "]" if rg.include_end else ")"
-    return f"{left}{a:.1f}, {b:.1f}{right}"
+    return f"{left}{a: .1f}, {b: .1f}{right}"
 
 
 def fmt_deg(rg):
@@ -354,7 +360,7 @@ def fmt_deg(rg):
     b_deg = rg.end * 180 / pi
     left = "[" if rg.include_start else "("
     right = "]" if rg.include_end else ")"
-    return f"{left}{a_deg:.0f}°, {b_deg:.0f}°{right}"
+    return f"{left}{a_deg: .0f}°, {b_deg: .0f}°{right}"
 
 
 print("\nCложение:")
@@ -388,8 +394,8 @@ res = rg11 + rg12
 print(f"{fmt_deg(rg11)} + {fmt_deg(rg12)} = {[fmt_deg(r) for r in res]}")
 
 print("\nВычитание всего диапазона:")
-rg13 = AngleRange(pi / 4, 3 * pi / 4)
-rg14 = AngleRange(pi / 4, 3 * pi / 4)
+rg13 = AngleRange(pi / 4, 3 * pi / 4, first_incl=False, second_incl=False)
+rg14 = AngleRange(pi / 4, 3 * pi / 4, first_incl=False, second_incl=False)
 res = rg13 - rg14
 print(f"{fmt_deg(rg13)} - {fmt_deg(rg14)} = {[fmt_deg(r) for r in res]}")
 

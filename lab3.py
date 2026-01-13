@@ -34,7 +34,7 @@ class ReLogFilter(ILogFilter):
 
     def match(self, log_level: LogLevel, text: str) -> bool:
         try:
-            return re.fullmatch(self.pattern, text)
+            return re.fullmatch(self.pattern, text) is not None
         except Exception:
             return False
 
@@ -132,10 +132,13 @@ class ILogFormatter(ABC):
 
 
 class LevelAndTimeFormatter(ILogFormatter):
+    def __init__(self, data: str = "%Y.%m.%d %H:%M:%S"):
+        self.data = data
+
     def format(self, log_level: LogLevel, text: str) -> str:
         now = datetime.now()
-        data = now.strftime("%Y.%m.%d %H:%M:%S")
-        return f'[{log_level}] [data:{data}] {text}'
+        data_str = now.strftime(self.data)
+        return f'[{log_level}] [{data_str}] {text}'
 
 
 class Logger:
@@ -195,9 +198,9 @@ if __name__ == "__main__":
         FileHandler("log_demo_extended.txt")
     ]
 
-    formatters = [LevelAndTimeFormatter()]
+    formatter = [LevelAndTimeFormatter("%d/%m/%Y %I:%M %p")] # здесь меняется формат вывода даты
 
-    logger = Logger(filters, handlers, formatters)
+    logger = Logger(filters, handlers, formatter)
 
     test_messages = [
         (LogLevel.INFO, "disk space ok"),

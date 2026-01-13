@@ -2,3 +2,9 @@
 [LogLevel.WARN] [data:2025.12.24 16:27:13] disk full backup
 [LogLevel.WARN] [data:2025.12.24 16:38:29] disk almost full
 [LogLevel.WARN] [data:2025.12.24 16:38:29] disk full backup
+[LogLevel.WARN] [data:2025.12.26 16:49:20] disk almost full
+[LogLevel.WARN] [data:2025.12.26 16:49:20] disk full backup
+[LogLevel.WARN] [data:2025.12.29 11:34:56] disk almost full
+[LogLevel.WARN] [data:2025.12.29 11:34:56] disk full backup
+[LogLevel.WARN] [29/12/2025 11:51 AM] disk almost full
+[LogLevel.WARN] [29/12/2025 11:51 AM] disk full backup

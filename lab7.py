@@ -1,308 +1,247 @@
-from typing import Callable, Optional, Any, Type, Dict, List
+from typing import Callable, Optional, Any, Dict, List, Type, Union
 from enum import Enum
 import inspect
 import types
 
 
-class Lifecycle(Enum):
-    TRANSIENT = "Transient"
-    SCOPED = "Scoped"
-    SINGLETON = "Singleton"
+class LifeStyle(Enum):
+    PerRequest = "PerRequest"
+    Scoped = "Scoped"
+    Singleton = "Singleton"
 
 
-class DependencyInjector:
+class Injector:
     def __init__(self) -> None:
-        self._registry: Dict[Type, dict] = {}
-        self._scopes: List[Dict[Type, Any]] = []
-        self._singletons: Dict[Type, Any] = {}
+        self.registered_interfaces: Dict[Type[Any], Dict[str, Any]] = {}
+        self._scope_stack: List[Dict[Type[Any], Any]] = []
+        self._singletone_instances: Dict[Type[Any], Any] = {}
 
-    def register(
-            self,
-            abstract: Type,
-            implementation: Type | Callable,
-            lifecycle: Lifecycle = Lifecycle.TRANSIENT,
-            **kwargs: Any
-    ) -> None:
-        if abstract in self._registry:
-            raise ValueError(f"Тип {abstract} уже зарегистрирован")
+    def register(self, interface: Type[Any],
+                 class_or_factory: Union[Type[Any], Callable[..., Any]],
+                 lifestyle: Optional[LifeStyle] = None,
+                 params: Optional[Dict[str, Any]] = None) -> None:
 
-        self._registry[abstract] = {
-            'concrete': implementation,
-            'lifecycle': lifecycle,
-            'parameters': kwargs
+        if inspect.isclass(class_or_factory):
+            target = class_or_factory.__init__
+            sign = inspect.signature(target)
+
+            for name, parameter in sign.parameters.items():
+                if name == "self":
+                    continue
+
+                if (name not in (params or {}) and parameter.annotation != inspect.Parameter.empty and
+                    parameter.annotation not in self.registered_interfaces):
+                    raise Exception (f"Can`t register {class_or_factory.__name__} \n"
+                                     f"Because {parameter.annotation.__name__} isn`t registered")
+
+        self.registered_interfaces[interface] = {
+            "provider": class_or_factory,
+            "lifestyle": lifestyle,
+            "params": params if params else {}
         }
 
-    def create_scope(self) -> 'DependencyScope':
-        return DependencyScope(self)
+    def open_scope(self) -> Any:
+        return Scope(self)
 
-    def _enter_scope(self) -> None:
-        self._scopes.append({})
+    def _push_scope(self) -> None:
+        self._scope_stack.append({})
 
-    def _exit_scope(self) -> None:
-        if self._scopes:
-            self._scopes.pop()
+    def _pop_scope(self) -> None:
+        self._scope_stack.pop()
 
-    def _get_current_scope(self) -> Optional[Dict[Type, Any]]:
-        return self._scopes[-1] if self._scopes else None
+    def _current_scope(self) -> Optional[Dict[Type[Any], Any]]:
+        return self._scope_stack[-1] if self._scope_stack else None
 
-    def resolve(self, abstract: Type) -> Any:
-        if abstract not in self._registry:
-            raise ValueError(f"Тип {abstract} не зарегистрирован")
+    def get_instance(self, interface_type: Type[Any]) -> Any:
+        reg = self.registered_interfaces[interface_type]
 
-        registration = self._registry[abstract]
-        implementation = registration['concrete']
-        lifecycle = registration['lifecycle']
-        params = registration['parameters']
+        provider = reg["provider"]
+        params = reg["params"]
+        lifestyle = reg["lifestyle"]
 
-        if lifecycle == Lifecycle.SINGLETON:
-            if abstract not in self._singletons:
-                self._singletons[abstract] = self._construct_instance(implementation, params)
-            return self._singletons[abstract]
+        target = provider.__init__ if inspect.isclass(provider) else provider
+        sig = inspect.signature(target)
 
-        elif lifecycle == Lifecycle.SCOPED:
-            scope = self._get_current_scope()
-            if scope is None:
-                raise RuntimeError("Нет активной области видимости")
+        constructor_args: Dict[str, Any] = {}
 
-            if abstract not in scope:
-                scope[abstract] = self._construct_instance(implementation, params)
-            return scope[abstract]
-
-        elif lifecycle == Lifecycle.TRANSIENT:
-            return self._construct_instance(implementation, params)
-
-        else:
-            raise ValueError(f"Неизвестный жизненный цикл: {lifecycle}")
-
-    def _construct_instance(self, implementation: Type | Callable, extra_params: Dict[str, Any]) -> Any:
-        if inspect.isclass(implementation):
-            signature_target = implementation.__init__
-            is_class = True
-        else:
-            signature_target = implementation
-            is_class = False
-
-        sig = inspect.signature(signature_target)
-        constructor_args = {}
-
-        for param_name, param in sig.parameters.items():
-            if param_name == 'self' and is_class:
+        for name, param in sig.parameters.items():
+            if name == "self":
                 continue
 
-            if param_name in extra_params:
-                constructor_args[param_name] = extra_params[param_name]
-
-            elif param.annotation != inspect.Parameter.empty:
-                if param.annotation in self._registry:
-                    constructor_args[param_name] = self.resolve(param.annotation)
-                elif param.default != inspect.Parameter.empty:
-                    constructor_args[param_name] = param.default
+            if name in params:
+                constructor_args[name] = params[name]
+            elif param.annotation in self.registered_interfaces:
+                dep_lifestyle = self.registered_interfaces[param.annotation]["lifestyle"]
+                if dep_lifestyle == LifeStyle.Scoped and self._current_scope() is None:
+                    constructor_args[name] = self._create_scoped_instance(param.annotation)
                 else:
-                    raise RuntimeError(
-                        f"Не удается разрешить параметр '{param_name}' "
-                        f"типа '{param.annotation}' для {implementation}"
-                    )
-
-            elif param.default != inspect.Parameter.empty:
-                constructor_args[param_name] = param.default
+                    constructor_args[name] = self.get_instance(param.annotation)
             else:
-                raise RuntimeError(
-                    f"Не удается разрешить параметр '{param_name}' без аннотации"
-                )
+                raise Exception("DI can't resolve parameter")
 
-        if is_class:
-            return implementation(**constructor_args)
-        else:
-            return implementation(**constructor_args)
+        if lifestyle == LifeStyle.PerRequest:
+            return provider(**constructor_args)
+
+        elif lifestyle == LifeStyle.Singleton:
+            if interface_type not in self._singletone_instances:
+                self._singletone_instances[interface_type] = provider(**constructor_args)
+            return self._singletone_instances[interface_type]
+
+        elif lifestyle == LifeStyle.Scoped:
+            scope = self._current_scope()
+            if scope is None:
+                return self._create_scoped_instance(interface_type)
+
+            if interface_type not in scope:
+                scope[interface_type] = provider(**constructor_args)
+
+            return scope[interface_type]
+
+        raise Exception(f"Unknown lifestyle: {lifestyle}")
+
+    def _create_scoped_instance(self, interface_type: Type[Any]) -> Any:
+        temp_scope: Dict[Type[Any], Any] = {}
+        self._scope_stack.append(temp_scope)
+
+        try:
+            reg = self.registered_interfaces[interface_type]
+            provider = reg["provider"]
+            params = reg["params"]
+
+            target = provider.__init__ if inspect.isclass(provider) else provider
+            sig = inspect.signature(target)
+
+            constructor_args: Dict[str, Any] = {}
+
+            for name, param in sig.parameters.items():
+                if name == "self":
+                    continue
+
+                if name in params:
+                    constructor_args[name] = params[name]
+                elif param.annotation in self.registered_interfaces:
+                    constructor_args[name] = self.get_instance(param.annotation)
+                else:
+                    raise Exception("DI can't resolve parameter")
+
+            instance = provider(**constructor_args)
+            temp_scope[interface_type] = instance
+            return instance
+        finally:
+            self._scope_stack.pop()
 
 
-class DependencyScope:
-    def __init__(self, injector: DependencyInjector) -> None:
+class Scope:
+    def __init__(self, injector: Injector) -> None:
         self.injector = injector
 
-    def __enter__(self) -> DependencyInjector:
-        self.injector._enter_scope()
-        return self.injector
+    def __enter__(self) -> 'Scope':
+        self.injector._push_scope()
+        return self
 
     def __exit__(
             self,
             exc_type: Optional[Type[BaseException]],
-            exc_val: Optional[BaseException],
-            exc_tb: Optional[types.TracebackType]
-    ) -> None:
-        self.injector._exit_scope()
+            exc_value: Optional[BaseException],
+            traceback: Optional[types.TracebackType]) -> None:
+        self.injector._pop_scope()
+
+# интерфейсы
 
 
-class ILogger:
-    pass
+class I1:
+    ...
 
 
-class IDataRepository:
-    pass
+class I2:
+    ...
 
 
-class IBusinessService:
-    pass
+class I3:
+    ...
 
 
-class ConsoleLogger(ILogger):
-    def __init__(self, log_prefix: str = "LOG"):
-        self.prefix = log_prefix
-        self.name = "ConsoleLogger"
-
-    def log(self, message: str) -> None:
-        print(f"[{self.prefix}] {message}")
+class C1_Debug(I1):
+    def __init__(self) -> None:
+        self.name = "C1_Debug"
 
 
-class FileLogger(ILogger):
-    def __init__(self, filename: str = "app.log"):
-        self.filename = filename
-        self.name = "FileLogger"
-
-    def log(self, message: str) -> None:
-        with open(self.filename, 'a', encoding='utf-8') as f:
-            f.write(f"{message}\n")
+class C1_Release(I1):
+    def __init__(self) -> None:
+        self.name = "C1_Release"
 
 
-class MemoryRepository(IDataRepository):
-    def __init__(self, logger: ILogger):
-        self.logger = logger
-        self.data = {}
-        self.name = "MemoryRepository"
-
-    def add(self, key: str, value: Any) -> None:
-        self.data[key] = value
-        if isinstance(self.logger, ConsoleLogger):
-            self.logger.log(f"Добавлен элемент: {key} -> {value}")
+class C2_Debug(I2):
+    def __init__(self, i1: I1) -> None:
+        self.i1 = i1
+        self.name = "C2_Debug"
 
 
-class DatabaseRepository(IDataRepository):
-    def __init__(self, logger: ILogger, connection_string: str):
-        self.logger = logger
-        self.connection_string = connection_string
-        self.name = "DatabaseRepository"
-
-    def connect(self) -> None:
-        if isinstance(self.logger, ConsoleLogger):
-            self.logger.log(f"Подключение к БД: {self.connection_string}")
+class C2_Release(I2):
+    def __init__(self, i1: I1) -> None:
+        self.i1 = i1
+        self.name = "C2_Release"
 
 
-class UserService(IBusinessService):
-    def __init__(self, logger: ILogger, repository: IDataRepository):
-        self.logger = logger
-        self.repository = repository
-        self.name = "UserService"
-
-    def process_user(self, user_id: int) -> None:
-        if isinstance(self.logger, ConsoleLogger):
-            self.logger.log(f"Обработка пользователя {user_id}")
-        print(f"Сервис {self.name} использует {self.repository.name}")
+class C3_Debug(I3):
+    def __init__(self, i1: I1, i2: I2) -> None:
+        self.i1 = i1
+        self.i2 = i2
+        self.name = "C3_Debug"
 
 
-class OrderService(IBusinessService):
-    def __init__(self, logger: ILogger, repository: IDataRepository, tax_rate: float = 0.2):
-        self.logger = logger
-        self.repository = repository
-        self.tax_rate = tax_rate
-        self.name = "OrderService"
-
-    def calculate_total(self, amount: float) -> float:
-        total = amount * (1 + self.tax_rate)
-        if isinstance(self.logger, ConsoleLogger):
-            self.logger.log(f"Расчет суммы: {amount} -> {total}")
-        return total
+class C3_Release(I3):
+    def __init__(self, i1: I1, i2: I2) -> None:
+        self.i1 = i1
+        self.i2 = i2
+        self.name = "C3_Release"
 
 
-def demonstrate_dependency_injection():
-    print("ДЕМОНСТРАЦИЯ")
+def test_config_1(injector: Injector) -> None:
 
-    print("\n1. Конфигурация для разработки:")
+    injector.register(I1, C1_Debug, LifeStyle.PerRequest)
+    injector.register(I2, C2_Debug, LifeStyle.PerRequest)
+    injector.register(I3, C3_Debug, LifeStyle.PerRequest)
 
-    dev_injector = DependencyInjector()
+    obj1 = injector.get_instance(I1)
+    obj2 = injector.get_instance(I2)
+    obj3 = injector.get_instance(I3)
 
-    dev_injector.register(ILogger, ConsoleLogger, Lifecycle.SINGLETON, log_prefix="DEV")
-    dev_injector.register(IDataRepository, MemoryRepository, Lifecycle.TRANSIENT)
-    dev_injector.register(IBusinessService, UserService, Lifecycle.SCOPED)
+    print(obj1.name)
+    print(obj2.name, obj2.i1.name)
+    print(obj3.name, obj3.i1.name, obj3.i2.name)
 
-    print("Система логирования (Singleton):")
-    logger1 = dev_injector.resolve(ILogger)
-    logger2 = dev_injector.resolve(ILogger)
-    print(f"  logger1 is logger2: {logger1 is logger2}")
 
-    print("\nРепозиторий (Transient):")
-    repo1 = dev_injector.resolve(IDataRepository)
-    repo2 = dev_injector.resolve(IDataRepository)
-    print(f"  repo1 is repo2: {repo1 is repo2}")
+def test_config_2(injector: Injector) -> None:
+    injector.register(I1, C1_Release, LifeStyle.Singleton)
+    injector.register(I2, C2_Release, LifeStyle.Scoped)
+    injector.register(I3, C3_Release, LifeStyle.PerRequest)
 
-    print("\nСервис пользователей в области видимости (Scoped):")
-    with dev_injector.create_scope():
-        service1 = dev_injector.resolve(IBusinessService)
-        service2 = dev_injector.resolve(IBusinessService)
-        print(f"  В одной области: service1 is service2: {service1 is service2}")
+    i1_a = injector.get_instance(I1)
+    i1_b = injector.get_instance(I1)
+    print("Singleton:", i1_a is i1_b)
 
-    with dev_injector.create_scope():
-        service3 = dev_injector.resolve(IBusinessService)
+    with injector.open_scope():
+        i2_a = injector.get_instance(I2)
+        i2_b = injector.get_instance(I2)
+        print("Scoped:", i2_a is i2_b)
 
-    print("\n2. Конфигурация для продакшена:")
+    with injector.open_scope():
+        i2_c = injector.get_instance(I2)
+        print("Scoped new:", i2_a is i2_c)
 
-    prod_injector = DependencyInjector()
+    i3_a = injector.get_instance(I3)
+    i3_b = injector.get_instance(I3)
+    print("PerRequest:", i3_a is i3_b)
 
-    prod_injector.register(
-        ILogger,
-        FileLogger,
-        Lifecycle.SINGLETON,
-        filename="production.log"
-    )
-    prod_injector.register(
-        IDataRepository,
-        DatabaseRepository,
-        Lifecycle.SINGLETON,
-        connection_string="server=prod;database=app"
-    )
-    prod_injector.register(
-        IBusinessService,
-        OrderService,
-        Lifecycle.TRANSIENT,
-        tax_rate=0.18
-    )
 
-    print("Создание сервиса заказов с внедренными зависимостями:")
-    order_service = prod_injector.resolve(IBusinessService)
+def run_all_tests() -> None:
+    inj = Injector()
+    test_config_1(inj)
 
-    if isinstance(order_service, OrderService):
-        print(f"  Сервис: {order_service.name}")
-        print(f"  Логгер: {order_service.logger.name}")
-        print(f"  Репозиторий: {order_service.repository.name}")
-        print(f"  Ставка налога: {order_service.tax_rate}")
-
-        total = order_service.calculate_total(1000)
-        print(f"  Расчет суммы заказа: 1000 -> {total:.2f}")
-
-    print("\n3. Фабричные методы:")
-
-    def create_custom_logger(log_level: str = "INFO") -> ILogger:
-        class CustomLogger(ILogger):
-            def __init__(self):
-                self.name = f"CustomLogger_{log_level}"
-                self.level = log_level
-
-            def log(self, message: str):
-                print(f"[{self.level}] {message}")
-
-        return CustomLogger()
-
-    custom_injector = DependencyInjector()
-    custom_injector.register(
-        ILogger,
-        lambda: create_custom_logger("DEBUG"),
-        Lifecycle.TRANSIENT
-    )
-
-    custom_logger = custom_injector.resolve(ILogger)
-    print(f"Создан кастомный логгер: {custom_logger.name}")
-    custom_logger.log("Тестовое сообщение")
-
+    inj = Injector()
+    test_config_2(inj)
 
 
 if __name__ == "__main__":
-    demonstrate_dependency_injection()
+    run_all_tests()

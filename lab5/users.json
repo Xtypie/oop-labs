@@ -3,16 +3,16 @@
         "id": 1,
         "name": "Василий Пупкин",
         "login": "vasyanpu",
-        "password": "fizmat123",
-        "email": "lenin@sssr.com",
-        "address": "Москва, ул. пушкина, колотушкина"
+        "password": "volodya",
+        "email": "vasyan@kantiana.ru",
+        "address": null
     },
     {
         "id": 2,
         "name": "Владимир Ленин",
         "login": "vilenin",
-        "password": "revolution17",
-        "email": "lenin@sssr.com",
-        "address": null
+        "password": "revoludtion17",
+        "email": null,
+        "address": "Улица Пушкина, дом колотушкина"
     }
 ]
